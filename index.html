@@ -1,4 +1,84 @@
-const firebaseConfig = {
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3F Woordenschat Battle</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #eef2f7; color: #333; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .header-img { width: 100%; height: auto; border-radius: 8px; border: 3px solid #3498db; margin-bottom: 20px; display: block; }
+        .hidden { display: none; }
+        h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-top: 0; }
+        input, select, button, textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; box-sizing: border-box; }
+        button { background: #3498db; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        button:hover { background: #2980b9; }
+        .admin-btn { background: #95a5a6; }
+        .reset-btn { background: #e74c3c; }
+        .score-list { background: #f8f9fa; padding: 15px; border-left: 5px solid #3498db; margin-top: 20px; }
+        #target-word { font-size: 50px; color: #e74c3c; margin: 10px 0; text-transform: uppercase; font-weight: 800; text-align: center; }
+        .meaning-box { background: #fff3cd; padding: 15px; border-radius: 6px; font-style: italic; border: 1px solid #ffeeba; margin-top: 10px; }
+        #role-status { font-weight: bold; padding: 15px; border-radius: 6px; text-align: center; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <img src="woordenschatbattle.png" alt="Woordenschat Battle" class="header-img">
+
+    <div id="login-screen">
+        <h2>Inloggen Student</h2>
+        <input type="text" id="username" placeholder="Je voornaam...">
+        <select id="userclass">
+            <option value="Delta">Klas Delta</option>
+            <option value="Echo">Klas Echo</option>
+            <option value="Foxtrot">Klas Foxtrot</option>
+            <option value="Lima">Klas Lima</option>
+            <option value="Mike">Klas Mike</option>
+        </select>
+        <button onclick="login()">Start Spel</button>
+        <button class="admin-btn" onclick="showAdmin()">Docent Dashboard (Bulk)</button>
+    </div>
+
+    <div id="admin-screen" class="hidden">
+        <h2>Bulk Invoer</h2>
+        <p>Formaat: <strong>woord[SPATIE]betekenis</strong></p>
+        <textarea id="bulk-input" rows="10" placeholder="Aanzienlijk erg groot of veel"></textarea>
+        <button onclick="saveWords()">Lijst Opslaan & Start</button>
+        <button class="reset-btn" onclick="resetDatabase()">DATABASE RESETTEN (Leegmaken)</button>
+        <button onclick="location.reload()">Terug</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <h3 id="welcome-msg"></h3>
+        <div id="role-status">Wachten op spelers...</div>
+        <hr>
+        
+        <div id="describer-view" class="hidden">
+            <p style="text-align:center;">Omschrijf dit woord aan de klas:</p>
+            <div id="target-word">---</div>
+            <div class="meaning-box">
+                <strong>Betekenis:</strong> <span id="target-meaning"></span>
+            </div>
+        </div>
+
+        <div id="guesser-view" class="hidden">
+            <p>Raad het woord:</p>
+            <input type="text" id="guess-input" placeholder="Typ je antwoord...">
+            <button onclick="checkGuess()">Verstuur</button>
+        </div>
+
+        <hr>
+        <h4>Tussenstand:</h4>
+        <div id="score-display" class="score-list"></div>
+    </div>
+</div>
+
+<script>
+    // Firebase Configuratie
+    const firebaseConfig = {
         apiKey: "AIzaSyCJ5of6K5MRFXMOiEqEyZxZbs1xoJtXuN8",
         authDomain: "pvaangifteinleveren.firebaseapp.com",
         databaseURL: "https://pvaangifteinleveren-default-rtdb.europe-west1.firebasedatabase.app",
@@ -13,7 +93,6 @@ const firebaseConfig = {
 
     let myName = "";
     let myClass = "";
-    let wordCounter = 0;
 
     function showAdmin() {
         document.getElementById('login-screen').classList.add('hidden');
@@ -23,16 +102,14 @@ const firebaseConfig = {
     function login() {
         myName = document.getElementById('username').value.trim();
         myClass = document.getElementById('userclass').value;
-        if(!myName) return alert("Vul je naam in!");
+        if(!myName) return alert("Naam verplicht!");
 
         document.getElementById('login-screen').classList.add('hidden');
         document.getElementById('game-screen').classList.remove('hidden');
         document.getElementById('welcome-msg').innerText = `Speler: ${myName} (${myClass})`;
 
-        // Student aanmelden
         db.ref('players/' + myName).set({ name: myName, class: myClass, score: 0, hasDescribed: false });
         
-        // Check of we het spel moeten starten (bij 2e student)
         checkGameStart();
         listenToGame();
     }
@@ -40,14 +117,11 @@ const firebaseConfig = {
     function checkGameStart() {
         db.ref('players').once('value', snap => {
             const players = snap.val();
-            const playerCount = players ? Object.keys(players).length : 0;
-            
-            db.ref('currentRound').once('value', roundSnap => {
-                // Alleen starten als er woorden zijn én er 2 spelers zijn én er nog geen ronde loopt
-                if (playerCount >= 2 && !roundSnap.exists()) {
-                    pickNewRound(true); // true betekent: kies ook een nieuwe omschrijver
-                }
-            });
+            if (players && Object.keys(players).length >= 2) {
+                db.ref('currentRound').once('value', rSnap => {
+                    if(!rSnap.exists()) pickNewRound(true);
+                });
+            }
         });
     }
 
@@ -55,91 +129,66 @@ const firebaseConfig = {
         const text = document.getElementById('bulk-input').value;
         const lines = text.split('\n');
         let words = [];
-
         lines.forEach(line => {
-            const trimLine = line.trim();
-            const firstSpace = trimLine.indexOf(' ');
-            if (firstSpace !== -1) {
-                const w = trimLine.substring(0, firstSpace).trim();
-                const m = trimLine.substring(firstSpace).trim();
-                words.push({ w: w, m: m });
-            }
+            const t = line.trim();
+            const spaceIdx = t.indexOf(' ');
+            if(spaceIdx !== -1) words.push({ w: t.substring(0, spaceIdx), m: t.substring(spaceIdx).trim() });
         });
-
         if(words.length > 0) {
             db.ref('wordlist').set(words);
             db.ref('roundCount').set(0);
-            alert(words.length + " woorden geladen! Het spel start zodra er 2 studenten zijn.");
+            alert("Woorden geladen! Het spel start bij 2 spelers.");
         }
     }
 
-    function pickNewRound(forceNewDescriber = false) {
+    function pickNewRound(forceNew = false) {
         db.ref('/').once('value', snap => {
             const data = snap.val();
-            const words = data.wordlist;
-            const players = data.players;
-            let roundCount = data.roundCount || 0;
-            let currentDescriber = data.currentRound ? data.currentRound.describer : null;
+            if(!data.wordlist) return;
+            
+            let rCount = data.roundCount || 0;
+            let describer = data.currentRound ? data.currentRound.describer : null;
 
-            if(!words) return alert("Geen woorden in database!");
-
-            // Moeten we van omschrijver wisselen? (Elke 5 woorden of bij de start)
-            if (forceNewDescriber || roundCount % 5 === 0) {
-                const available = Object.keys(players).filter(p => !players[p].hasDescribed);
-                
-                // Als iedereen is geweest, reset de lijst
+            if (forceNew || rCount % 5 === 0) {
+                const available = Object.keys(data.players).filter(p => !data.players[p].hasDescribed);
                 if (available.length === 0) {
-                    Object.keys(players).forEach(p => db.ref(`players/${p}/hasDescribed`).set(false));
-                    currentDescriber = Object.keys(players)[Math.floor(Math.random() * Object.keys(players).length)];
+                    Object.keys(data.players).forEach(p => db.ref(`players/${p}/hasDescribed`).set(false));
+                    describer = Object.keys(data.players)[0]; 
                 } else {
-                    currentDescriber = available[Math.floor(Math.random() * available.length)];
+                    describer = available[Math.floor(Math.random() * available.length)];
                 }
-                db.ref(`players/${currentDescriber}/hasDescribed`).set(true);
+                db.ref(`players/${describer}/hasDescribed`).set(true);
             }
 
-            const randomWord = words[Math.floor(Math.random() * words.length)];
-            
-            db.ref('currentRound').set({
-                word: randomWord.w,
-                meaning: randomWord.m,
-                describer: currentDescriber
-            });
-            db.ref('roundCount').set(roundCount + 1);
+            const randW = data.wordlist[Math.floor(Math.random() * data.wordlist.length)];
+            db.ref('currentRound').set({ word: randW.w, meaning: randW.m, describer: describer });
+            db.ref('roundCount').set(rCount + 1);
         });
     }
 
     function listenToGame() {
         db.ref('players').on('value', snap => {
             const data = snap.val();
-            let html = "";
-            for(let p in data) {
-                html += `<div>${data[p].name} (${data[p].class}): <strong>${data[p].score}</strong> ${data[p].hasDescribed ? '✓' : ''}</div>`;
-            }
-            document.getElementById('score-display').innerHTML = html;
+            let h = "";
+            for(let p in data) h += `<div>${data[p].name} (${data[p].class}): <strong>${data[p].score}</strong> ${data[p].hasDescribed?'✓':''}</div>`;
+            document.getElementById('score-display').innerHTML = h;
         });
 
         db.ref('currentRound').on('value', snap => {
-            const round = snap.val();
-            if(!round) {
-                document.getElementById('role-status').innerText = "Wachten op minimaal 2 spelers...";
-                return;
-            }
-
-            const isDescriber = (round.describer === myName);
-            const statusBox = document.getElementById('role-status');
+            const r = snap.val();
+            if(!r) return;
+            const isD = (r.describer === myName);
+            const sBox = document.getElementById('role-status');
+            sBox.style.background = isD ? "#e74c3c" : "#27ae60";
+            sBox.style.color = "white";
+            sBox.innerText = isD ? "JIJ BENT DE OMSCHRIJVER" : `${r.describer} omschrijft...`;
             
-            if(isDescriber) {
-                statusBox.innerText = "JIJ BENT DE OMSCHRIJVER";
-                statusBox.style.background = "#e74c3c";
-                document.getElementById('describer-view').classList.remove('hidden');
-                document.getElementById('guesser-view').classList.add('hidden');
-                document.getElementById('target-word').innerText = round.word;
-                document.getElementById('target-meaning').innerText = round.meaning;
+            document.getElementById('describer-view').classList.toggle('hidden', !isD);
+            document.getElementById('guesser-view').classList.toggle('hidden', isD);
+            if(isD) {
+                document.getElementById('target-word').innerText = r.word;
+                document.getElementById('target-meaning').innerText = r.meaning;
             } else {
-                statusBox.innerText = `${round.describer} omschrijft een woord...`;
-                statusBox.style.background = "#27ae60";
-                document.getElementById('describer-view').classList.add('hidden');
-                document.getElementById('guesser-view').classList.remove('hidden');
                 document.getElementById('guess-input').value = "";
                 document.getElementById('guess-input').focus();
             }
@@ -147,20 +196,19 @@ const firebaseConfig = {
     }
 
     function checkGuess() {
-        const guess = document.getElementById('guess-input').value.trim().toLowerCase();
+        const g = document.getElementById('guess-input').value.trim().toLowerCase();
         db.ref('currentRound/word').once('value', snap => {
-            if(guess === snap.val().toLowerCase()) {
+            if(g === snap.val().toLowerCase()) {
                 db.ref('players/' + myName + '/score').transaction(s => (s || 0) + 3);
-                pickNewRound(false); // Volgend woord, behoud omschrijver tenzij 5e beurt
-            } else {
-                alert("Niet correct!");
-            }
+                pickNewRound(false);
+            } else alert("Fout!");
         });
     }
 
     function resetDatabase() {
-        if(confirm("Alles wissen?")) {
-            db.ref('/').remove();
-            location.reload();
-        }
+        if(confirm("Alles wissen?")) { db.ref('/').remove(); location.reload(); }
     }
+</script>
+
+</body>
+</html>
